@@ -32,13 +32,41 @@ void printMap(const Map& map) {
  * @param U Threshold to decide if the current cell becomes 1 or 0.
  * @return The map after applying the cellular automata rules.
  */
+
 Map cellularAutomata(const Map& currentMap, int W, int H, int R, double U) {
-    Map newMap = currentMap; // Initially, the new map is a copy of the current one
+    // 1. Creamos newMap como copia de currentMap
+    Map newMap = currentMap;
 
     // TODO: IMPLEMENTATION GOES HERE for the cellular automata logic.
     // Iterate over each cell and apply the transition rules.
     // Remember that updates should be based on the 'currentMap' state
     // and applied to the 'newMap' to avoid race conditions within the same iteration.
+    
+    // 2. Recorremos cada celda de currentMap
+    for (int i = 0; i < H; ++i) {
+        for (int j = 0; j < W; ++j) {
+            int count = 0;
+
+            // 3. Contamos vecinos en la ventana de radio R (excluimos la celda central)
+            for (int dx = -R; dx <= R; ++dx) {
+                for (int dy = -R; dy <= R; ++dy) {
+                    if (dx == 0 && dy == 0) continue;        // saltamos la propia celda
+                    int ni = i + dx, nj = j + dy;
+
+                    if (ni >= 0 && ni < H && nj >= 0 && nj < W) {
+                        // dentro del mapa, sumamos el valor (0 o 1)
+                        count += currentMap[ni][nj];
+                    } else {
+                        // fuera de límites: tratamos como PARED (1)
+                        count += 1;
+                    }
+                }
+            }
+
+            // 4. Aplicamos umbral U: si vecinos ≥ U → 1, sino → 0
+            newMap[i][j] = (count >= U) ? 1 : 0;
+        }
+    }
 
     return newMap;
 }
@@ -95,25 +123,52 @@ Map drunkAgent(const Map& currentMap, int W, int H, int J, int I,
             // Marca la celda actual como pasillo
             newMap[agentX][agentY] = 1;
 
-            // Mueve al agente en la direccion actual
-            switch (dir) {
-                case 0: agentX--; break; // arriba
-                case 1: agentY++; break; // derecha
-                case 2: agentX++; break; // abajo
-                case 3: agentY--; break; // izquierda
+            // Con probabilidad pD, cambia dirección
+            if (dist01(rng) < pD) {
+                dir = dirDist(rng);
+                pD = probDir; // reinicia probabilidad de cambio de dirección
+            } else {
+                pD = std::min(1.0, pD + probIncDir);
             }
 
-            // Si sale del mapa, deshace el paso y elige una nueva dirección
-            if (agentX < 0 || agentX >= H || agentY < 0 || agentY >= W) {
-                switch (dir) {
-                    case 0: agentX++; break;
-                    case 1: agentY--; break;
-                    case 2: agentX--; break;
-                    case 3: agentY++; break;
-                }
+            // Calcula nueva posición
+            int newX = agentX;
+            int newY = agentY;
+            switch (dir) {
+                case 0: newX--; break; // arriba
+                case 1: newY++; break; // derecha
+                case 2: newX++; break; // abajo
+                case 3: newY--; break; // izquierda
+            }
+
+            // Si está dentro del mapa, se mueve
+            if (newX >= 0 && newX < H && newY >= 0 && newY < W) {
+                agentX = newX;
+                agentY = newY;
+            } else {
+                // Si se sale del mapa, cambia dirección aleatoriamente
                 dir = dirDist(rng);
                 continue;
             }
+        }
+
+        // Al final del camino, con probabilidad pR genera habitación
+        if (dist01(rng) < pR) {
+            int startX = clamp(agentX - roomH / 2, 0, H - 1);
+            int endX = clamp(agentX + roomH / 2, 0, H - 1);
+            int startY = clamp(agentY - roomW / 2, 0, W - 1);
+            int endY = clamp(agentY + roomW / 2, 0, W - 1);
+
+            for (int x = startX; x <= endX; ++x) {
+                for (int y = startY; y <= endY; ++y) {
+                    newMap[x][y] = 1;
+                }
+            }
+
+            // Reinicia probabilidad de generar cuarto
+            pR = probRoom;
+        } else {
+            pR = std::min(1.0, pR + probIncRoom);
         }
     }
 
@@ -124,17 +179,27 @@ int main() {
     std::cout << "--- CELLULAR AUTOMATA AND DRUNK AGENT SIMULATION ---" << std::endl;
 
     // --- Initial Map Configuration ---
-    int mapRows = 10;
-    int mapCols = 20;
+    int mapRows = 20;
+    int mapCols = 30;
     Map myMap(mapRows, std::vector<int>(mapCols, 0)); // Map initialized with zeros
+
+    // Inicializar con valores aleatorios 0 o 1
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> bin(0,1);
+    for (auto& row : myMap)
+        for (int& cell : row)
+            cell = bin(rng);
 
     // TODO: IMPLEMENTATION GOES HERE: Initialize the map with some pattern or initial state.
     // For example, you might set some cells to 1 for the cellular automata
     // or place the drunk agent at a specific position.
 
     // Drunk Agent's initial position
-    int drunkAgentX = mapRows / 2;
-    int drunkAgentY = mapCols / 2;
+    std::uniform_int_distribution<int> randRow(0, mapRows-1);
+    std::uniform_int_distribution<int> randCol(0, mapCols-1);
+    int drunkAgentX = randRow(rng);
+    int drunkAgentY = randCol(rng);
+
     // If your agent modifies the map at start, you could do it here:
     // myMap[drunkAgentX][drunkAgentY] = 2; // Assuming '2' represents the agent
 
@@ -142,13 +207,13 @@ int main() {
     printMap(myMap);
 
     // --- Simulation Parameters ---
-    int numIterations = 5; // Number of simulation steps
+    int numIterations = 3; // Number of simulation steps
 
     // Cellular Automata Parameters
     int ca_W = mapCols;
     int ca_H = mapRows;
     int ca_R = 1;      // Radius of neighbor window
-    double ca_U = 0.5; // Threshold
+    double ca_U = 5; // Threshold
 
     // Drunk Agent Parameters
     int da_W = mapCols;
@@ -163,7 +228,6 @@ int main() {
     double da_probIncChange = 0.03;
 
 
-
     // --- Main Simulation Loop ---
     for (int iteration = 0; iteration < numIterations; ++iteration) {
         std::cout << "\n--- Iteration " << iteration + 1 << " ---" << std::endl;
@@ -172,19 +236,24 @@ int main() {
         // The order of calls will depend on how you want them to interact.
 
         // Example: First the cellular automata, then the agent
-        //myMap = cellularAutomata(map, ca_W, ca_H, ca_R, ca_U);
-        myMap = drunkAgent(myMap, mapCols, mapRows, da_J, da_I, da_roomX, da_roomY,
-                     da_probGenRoom, da_probIncRoom, da_probChangeDir, da_probIncChange, drunkAgentX, drunkAgentY);
 
+        myMap = cellularAutomata(myMap, ca_W, ca_H, ca_R, ca_U);
+
+        std::cout << "CellularAutomata \n\n";
         printMap(myMap);
+
+        myMap = drunkAgent(myMap, mapCols, mapRows, da_J, da_I, da_roomX, da_roomY,
+                    da_probGenRoom, da_probIncRoom, da_probChangeDir, da_probIncChange, drunkAgentX, drunkAgentY);
+
+        std::cout << "\nDrunkAgent\n";
+        printMap(myMap);
+        
 
         // You can add a delay to visualize the simulation step by step
         // For std::this_thread::sleep_for
         // For std::chrono::milliseconds
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
-
-    
 
     std::cout << "\n--- Simulation Finished ---" << std::endl;
     return 0;
